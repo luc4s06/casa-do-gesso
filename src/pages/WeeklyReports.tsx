@@ -1,18 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { ChevronLeft, ChevronRight, Download, FileSpreadsheet } from 'lucide-react'
 import StatCard from '../components/StatCard'
 import { Wallet, TrendingUp, PackageMinus, Receipt as ReceiptIcon, CreditCard } from 'lucide-react'
-import { getWeeklySummary, getWeeklyMaterialsReport, getWeeklyClientsReport } from '../services/reportService'
+import { getWeeklyReport } from '../services/reportService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { getSettings } from '../services/settingsService'
 import { formatCurrency, formatRangeLabel } from '../utils/format'
 import { generateWeeklyReportPdf } from '../utils/pdf'
 
 export default function WeeklyReports() {
   const [offset, setOffset] = useState(0)
-  const settings = useMemo(() => getSettings(), [])
-  const summary = useMemo(() => getWeeklySummary(offset), [offset])
-  const materialsReport = useMemo(() => getWeeklyMaterialsReport(offset), [offset])
-  const clientsReport = useMemo(() => getWeeklyClientsReport(offset), [offset])
+  const { data, error, reload } = useAsync(async () => {
+    const [report, settings] = await Promise.all([getWeeklyReport(offset), getSettings()])
+    return { ...report, settings }
+  }, [offset])
+  if (!data) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
+  const { summary, materials: materialsReport, clientsReport, settings } = data
 
   function handlePdf() {
     generateWeeklyReportPdf({

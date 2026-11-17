@@ -1,5 +1,6 @@
 import { Material, MaterialPrice } from '../types'
-import { readAll, readOne, writeOne } from './storage'
+import { supabase } from '../lib/supabase'
+import { fail } from './db'
 
 const MATERIALS: Material[] = [
   { id: 'placa', name: 'Placa de Gesso', unit: 'metro' },
@@ -23,42 +24,50 @@ export function getMaterialById(id: string): Material | undefined {
   return MATERIALS.find((m) => m.id === id)
 }
 
-function getPricesMap(): Record<string, MaterialPrice> {
-  const stored = readOne<Record<string, MaterialPrice>>('material_prices')
-  if (stored) return stored
-  const initial: Record<string, MaterialPrice> = {}
-  MATERIALS.forEach((m) => {
-    initial[m.id] = { materialId: m.id, price: DEFAULT_PRICES[m.id] ?? 0, updatedAt: new Date().toISOString() }
+// Lê os preços; na primeira vez grava os preços padrão dos materiais que ainda não existem.
+async function loadPrices(): Promise<Record<string, MaterialPrice>> {
+  const { data, error } = await supabase.from('material_prices').select('*')
+  fail(error)
+  const map: Record<string, MaterialPrice> = {}
+  ;(data ?? []).forEach((r: any) => {
+    map[r.material_id] = { materialId: r.material_id, price: Number(r.price), updatedAt: r.updated_at }
   })
-  writeOne('material_prices', initial)
-  return initial
+
+  const missing = MATERIALS.filter((m) => !map[m.id])
+  if (missing.length > 0) {
+    const now = new Date().toISOString()
+    const rows = missing.map((m) => ({ material_id: m.id, price: DEFAULT_PRICES[m.id] ?? 0, updated_at: now }))
+    const { error: insertError } = await supabase
+      .from('material_prices')
+      .upsert(rows, { onConflict: 'material_id', ignoreDuplicates: true })
+    fail(insertError)
+    missing.forEach((m) => {
+      map[m.id] = { materialId: m.id, price: DEFAULT_PRICES[m.id] ?? 0, updatedAt: now }
+    })
+  }
+  return map
 }
 
-export function getCurrentPrice(materialId: string): number {
-  const prices = getPricesMap()
-  return prices[materialId]?.price ?? 0
+export async function getPricesMap(): Promise<Record<string, number>> {
+  const prices = await loadPrices()
+  const out: Record<string, number> = {}
+  MATERIALS.forEach((m) => {
+    out[m.id] = prices[m.id]?.price ?? 0
+  })
+  return out
 }
 
-export function getAllCurrentPrices(): MaterialPrice[] {
-  const prices = getPricesMap()
+export async function getAllCurrentPrices(): Promise<MaterialPrice[]> {
+  const prices = await loadPrices()
   return MATERIALS.map((m) => prices[m.id] ?? { materialId: m.id, price: 0, updatedAt: '' })
 }
 
-export function updatePrice(materialId: string, price: number): void {
-  const prices = getPricesMap()
-  prices[materialId] = { materialId, price, updatedAt: new Date().toISOString() }
-  writeOne('material_prices', prices)
-}
-
-export function updatePrices(updates: { materialId: string; price: number }[]): void {
-  const prices = getPricesMap()
-  updates.forEach((u) => {
-    prices[u.materialId] = { materialId: u.materialId, price: u.price, updatedAt: new Date().toISOString() }
-  })
-  writeOne('material_prices', prices)
-}
-
-// mantido para simetria de API, caso o app precise listar registros crus
-export function getAllPriceRecords(): MaterialPrice[] {
-  return readAll<MaterialPrice>('material_prices_history')
+export async function updatePrices(updates: { materialId: string; price: number }[]): Promise<void> {
+  for (const u of updates) {
+    if (!(u.price >= 0)) throw new Error('Preço não pode ser negativo.')
+  }
+  const now = new Date().toISOString()
+  const rows = updates.map((u) => ({ material_id: u.materialId, price: u.price, updated_at: now }))
+  const { error } = await supabase.from('material_prices').upsert(rows, { onConflict: 'material_id' })
+  fail(error)
 }

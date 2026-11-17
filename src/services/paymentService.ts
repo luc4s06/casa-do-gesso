@@ -1,51 +1,48 @@
 import { Payment, PaymentMethod } from '../types'
-import { readAll, writeAll, uid, nextSequence } from './storage'
+import { supabase } from '../lib/supabase'
+import { fail, fetchAll, round2, toPayment } from './db'
 import { getClientBalance } from './reportService'
 
-const KEY = 'payments'
-
-export function getPayments(): Payment[] {
-  return readAll<Payment>(KEY).sort((a, b) => (a.date < b.date ? 1 : -1))
+export async function getPayments(): Promise<Payment[]> {
+  const rows = await fetchAll<any>('payments')
+  return rows.map(toPayment).sort((a, b) => (a.date < b.date ? 1 : -1))
 }
 
-export function getPaymentsByClient(clientId: string): Payment[] {
-  return getPayments().filter((p) => p.clientId === clientId)
+export async function getPaymentsByClient(clientId: string): Promise<Payment[]> {
+  const rows = await fetchAll<any>('payments', '*', (q) => q.eq('client_id', clientId))
+  return rows.map(toPayment).sort((a, b) => (a.date < b.date ? 1 : -1))
 }
 
-export function createPayment(input: {
+export async function createPayment(input: {
   clientId: string
   amount: number
   method: PaymentMethod
   note?: string
   allowOverpay?: boolean
-}): Payment {
+}): Promise<Payment> {
   if (!input.clientId) throw new Error('Selecione um cliente.')
-  if (input.amount <= 0) throw new Error('O valor do pagamento deve ser maior que zero.')
+  if (!(input.amount > 0)) throw new Error('O valor do pagamento deve ser maior que zero.')
 
-  const balanceBefore = getClientBalance(input.clientId)
+  const balanceBefore = await getClientBalance(input.clientId)
   if (input.amount > balanceBefore && !input.allowOverpay) {
     throw new Error('OVERPAY')
   }
-  const balanceAfter = round2(balanceBefore - input.amount)
+  const amount = round2(input.amount)
+  const balanceAfter = round2(balanceBefore - amount)
 
-  const payment: Payment = {
-    id: uid(),
-    number: nextSequence('payment'),
-    clientId: input.clientId,
-    date: new Date().toISOString(),
-    amount: round2(input.amount),
-    method: input.method,
-    note: input.note?.trim() || undefined,
-    balanceBefore,
-    balanceAfter,
-  }
-
-  const all = readAll<Payment>(KEY)
-  all.push(payment)
-  writeAll(KEY, all)
-  return payment
-}
-
-function round2(n: number): number {
-  return Math.round(n * 100) / 100
+  const { data, error } = await supabase
+    .from('payments')
+    .insert({
+      client_id: input.clientId,
+      date: new Date().toISOString(),
+      amount,
+      method: input.method,
+      note: input.note?.trim() || null,
+      balance_before: balanceBefore,
+      balance_after: balanceAfter,
+    })
+    .select('*')
+    .single()
+  fail(error)
+  return toPayment(data)
 }

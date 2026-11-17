@@ -1,19 +1,28 @@
-import { useMemo } from 'react'
 import { useParams, Link, Navigate } from 'react-router-dom'
 import { ArrowLeft, Phone, MapPin, PackageMinus, Wallet, History } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { getClientById } from '../services/clientService'
 import { getClientTotals, getClientTransactions } from '../services/reportService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { formatCurrency, formatDateTime } from '../utils/format'
 import EmptyState from '../components/EmptyState'
 
 export default function CustomerDetails() {
   const { id } = useParams<{ id: string }>()
-  const client = id ? getClientById(id) : undefined
-  const totals = useMemo(() => (id ? getClientTotals(id) : null), [id])
-  const transactions = useMemo(() => (id ? getClientTransactions(id) : []), [id])
+  const { data, error, reload } = useAsync(async () => {
+    if (!id) return null
+    const [client, totals, transactions] = await Promise.all([
+      getClientById(id),
+      getClientTotals(id),
+      getClientTransactions(id),
+    ])
+    return client ? { client, totals, transactions } : null
+  }, [id])
 
-  if (!client || !totals) return <Navigate to="/clientes" replace />
+  if (data === undefined) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
+  if (data === null) return <Navigate to="/clientes" replace />
+  const { client, totals, transactions } = data
 
   return (
     <div className="flex flex-col gap-6">

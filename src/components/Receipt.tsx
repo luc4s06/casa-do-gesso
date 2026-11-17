@@ -33,7 +33,7 @@ export function WithdrawalReceipt({ withdrawal, client, settings }: { withdrawal
           {withdrawal.items.map((it) => (
             <tr key={it.materialId} className="border-b border-gray-100">
               <td className="py-1.5">{it.materialName}</td>
-              <td className="py-1.5">{it.quantity} {it.unit}</td>
+              <td className="py-1.5">{it.quantity.toLocaleString('pt-BR')} {it.unit}</td>
               <td className="py-1.5">{formatCurrency(it.unitPrice)}</td>
               <td className="py-1.5 text-right">{formatCurrency(it.total)}</td>
             </tr>
@@ -43,7 +43,7 @@ export function WithdrawalReceipt({ withdrawal, client, settings }: { withdrawal
 
       <div className="space-y-1 border-t border-gray-200 pt-3 text-xs text-graphite-700">
         <div className="flex justify-between"><span>Saldo anterior</span><span>{formatCurrency(withdrawal.balanceBefore)}</span></div>
-        <div className="flex justify-between"><span>Retirada</span><span>+ {formatCurrency(withdrawal.subtotal)}</span></div>
+        <div className="flex justify-between font-semibold text-graphite-900"><span>Total da retirada</span><span>+ {formatCurrency(withdrawal.subtotal)}</span></div>
         <div className="flex justify-between text-sm font-bold text-graphite-900"><span>Novo saldo</span><span>{formatCurrency(withdrawal.balanceAfter)}</span></div>
       </div>
       <p className="mt-4 text-[11px] text-graphite-600">{settings.name} — comprovante de retirada de material.</p>

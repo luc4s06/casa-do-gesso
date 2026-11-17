@@ -11,16 +11,21 @@ export default function NewCustomer() {
   const [phone, setPhone] = useState('')
   const [address, setAddress] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (busy) return
     setError('')
+    setBusy(true)
     try {
-      const client = createClient({ name, phone, address })
+      const client = await createClient({ name, phone, address })
       showToast('Cliente cadastrado com sucesso.')
       navigate(`/clientes/${client.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao cadastrar cliente.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -67,7 +72,7 @@ export default function NewCustomer() {
           />
         </div>
 
-        <button type="submit" className="mt-2 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-graphite-800">
+        <button type="submit" disabled={busy} className="mt-2 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-graphite-800 disabled:opacity-60">
           Cadastrar cliente
         </button>
       </form>

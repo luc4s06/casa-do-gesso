@@ -6,9 +6,15 @@ export default function Logo({ compact = false }: { compact?: boolean }) {
   const [name, setName] = useState('Casa do Gesso')
 
   useEffect(() => {
-    const s = getSettings()
-    setLogo(s.logo)
-    setName(s.name || 'Casa do Gesso')
+    let active = true
+    getSettings()
+      .then((s) => {
+        if (!active) return
+        setLogo(s.logo)
+        setName(s.name || 'Casa do Gesso')
+      })
+      .catch(() => {})
+    return () => { active = false }
   }, [])
 
   if (logo) {

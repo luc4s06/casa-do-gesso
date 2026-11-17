@@ -12,9 +12,16 @@ import Payments from './pages/Payments'
 import Prices from './pages/Prices'
 import WeeklyReports from './pages/WeeklyReports'
 import Settings from './pages/Settings'
+import Login from './pages/Login'
+import { LoadingState } from './components/AsyncState'
+import { useAuth } from './hooks/useAuth'
 
 export default function App() {
+  const { session, loading } = useAuth()
   const [drawerOpen, setDrawerOpen] = useState(false)
+
+  if (loading) return <LoadingState />
+  if (!session) return <Login />
 
   return (
     <div className="flex h-full min-h-screen bg-gray-50">

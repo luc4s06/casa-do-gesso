@@ -1,19 +1,26 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Download, PackageMinus, Plus } from 'lucide-react'
+import { MessageCircle, PackageMinus, Plus } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import WithdrawalModal from '../components/WithdrawalModal'
 import { getWithdrawals } from '../services/withdrawalService'
-import { getClientById } from '../services/clientService'
+import { getClients } from '../services/clientService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { getSettings } from '../services/settingsService'
 import { formatCurrency, formatDateTime } from '../utils/format'
-import { generateWithdrawalPdf } from '../utils/pdf'
+import { openWithdrawalOnWhatsApp } from '../utils/whatsapp'
 import { Withdrawal } from '../types'
 
 export default function Withdrawals() {
-  const withdrawals = useMemo(() => getWithdrawals(), [])
-  const settings = useMemo(() => getSettings(), [])
   const [viewing, setViewing] = useState<Withdrawal | null>(null)
+  const { data, error, reload } = useAsync(async () => {
+    const [withdrawals, clients, settings] = await Promise.all([getWithdrawals(), getClients(), getSettings()])
+    return { withdrawals, clients, settings }
+  }, [])
+  if (!data) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
+  const { withdrawals, clients, settings } = data
+  const clientsById = new Map(clients.map((c) => [c.id, c]))
 
   return (
     <div className="flex flex-col gap-6">
@@ -49,7 +56,7 @@ export default function Withdrawals() {
             </thead>
             <tbody>
               {withdrawals.map((w) => {
-                const client = getClientById(w.clientId)
+                const client = clientsById.get(w.clientId)
                 return (
                   <tr key={w.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 text-graphite-700">#{String(w.number).padStart(6, '0')}</td>
@@ -64,8 +71,8 @@ export default function Withdrawals() {
                           Visualizar
                         </button>
                         {client && (
-                          <button onClick={() => generateWithdrawalPdf(w, client, settings)} className="flex items-center gap-1 text-sm font-medium text-graphite-600 hover:text-graphite-900">
-                            <Download size={14} /> PDF
+                          <button onClick={() => openWithdrawalOnWhatsApp(w, client, settings)} className="flex items-center gap-1 text-sm font-medium text-green-700 hover:text-green-800">
+                            <MessageCircle size={14} /> WhatsApp
                           </button>
                         )}
                       </div>
@@ -80,7 +87,7 @@ export default function Withdrawals() {
 
       <WithdrawalModal
         withdrawal={viewing}
-        client={viewing ? getClientById(viewing.clientId) ?? null : null}
+        client={viewing ? clientsById.get(viewing.clientId) ?? null : null}
         settings={settings}
         onClose={() => setViewing(null)}
       />

@@ -2,14 +2,22 @@ import { useEffect, useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 import { getSettings, saveSettings } from '../services/settingsService'
 import { useToast } from '../hooks/useToast'
+import LegacyImport from '../components/LegacyImport'
 import { CompanySettings } from '../types'
 
 export default function Settings() {
   const { showToast } = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
   const [settings, setSettings] = useState<CompanySettings>({ name: '', phone: '', address: '' })
+  const [loaded, setLoaded] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => { setSettings(getSettings()) }, [])
+  useEffect(() => {
+    getSettings()
+      .then((s) => { setSettings(s); setLoaded(true) })
+      .catch((err) => showToast(err instanceof Error ? err.message : 'Não foi possível carregar as configurações.', 'error'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -19,10 +27,18 @@ export default function Settings() {
     reader.readAsDataURL(file)
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    saveSettings(settings)
-    showToast('Configurações salvas com sucesso.')
+    if (!loaded || saving) return
+    setSaving(true)
+    try {
+      await saveSettings(settings)
+      showToast('Configurações salvas com sucesso.')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Não foi possível salvar as configurações.', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -75,10 +91,12 @@ export default function Settings() {
           />
         </div>
 
-        <button type="submit" className="mt-1 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-graphite-800">
+        <button type="submit" disabled={!loaded || saving} className="mt-1 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-graphite-800 disabled:opacity-60">
           Salvar configurações
         </button>
       </form>
+
+      <LegacyImport />
     </div>
   )
 }

@@ -1,41 +1,46 @@
 import { Client } from '../types'
-import { readAll, writeAll, uid } from './storage'
-import { getClientBalance } from './reportService'
+import { supabase } from '../lib/supabase'
+import { fail, fetchAll, toClient } from './db'
+import { getBalancesMap } from './reportService'
 
-const KEY = 'clients'
-
-export function getClients(): Client[] {
-  return readAll<Client>(KEY).sort((a, b) => a.name.localeCompare(b.name))
+export async function getClients(): Promise<Client[]> {
+  const rows = await fetchAll<any>('clients')
+  return rows.map(toClient).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export function getClientById(id: string): Client | undefined {
-  return readAll<Client>(KEY).find((c) => c.id === id)
+export async function getClientById(id: string): Promise<Client | undefined> {
+  const { data, error } = await supabase.from('clients').select('*').eq('id', id).maybeSingle()
+  fail(error)
+  return data ? toClient(data) : undefined
 }
 
-export function createClient(input: { name: string; phone: string; address?: string }): Client {
+export async function createClient(input: { name: string; phone: string; address?: string }): Promise<Client> {
   if (!input.name.trim()) throw new Error('Nome é obrigatório.')
   if (!input.phone.trim()) throw new Error('Telefone é obrigatório.')
-  const client: Client = {
-    id: uid(),
-    name: input.name.trim(),
-    phone: input.phone.trim(),
-    address: input.address?.trim() || undefined,
-    createdAt: new Date().toISOString(),
-  }
-  const all = readAll<Client>(KEY)
-  all.push(client)
-  writeAll(KEY, all)
-  return client
+  const { data, error } = await supabase
+    .from('clients')
+    .insert({
+      name: input.name.trim(),
+      phone: input.phone.trim(),
+      address: input.address?.trim() || null,
+    })
+    .select('*')
+    .single()
+  fail(error)
+  return toClient(data)
 }
 
-export function updateClient(id: string, input: { name: string; phone: string; address?: string }): void {
-  const all = readAll<Client>(KEY)
-  const idx = all.findIndex((c) => c.id === id)
-  if (idx === -1) throw new Error('Cliente não encontrado.')
-  all[idx] = { ...all[idx], name: input.name.trim(), phone: input.phone.trim(), address: input.address?.trim() || undefined }
-  writeAll(KEY, all)
+export async function updateClient(id: string, input: { name: string; phone: string; address?: string }): Promise<void> {
+  const { data, error } = await supabase
+    .from('clients')
+    .update({ name: input.name.trim(), phone: input.phone.trim(), address: input.address?.trim() || null })
+    .eq('id', id)
+    .select('id')
+  fail(error)
+  if (!data || data.length === 0) throw new Error('Cliente não encontrado.')
 }
 
-export function getClientsWithBalance() {
-  return getClients().map((c) => ({ ...c, balance: getClientBalance(c.id) }))
+export async function getClientsWithBalance() {
+  const [clients, balances] = await Promise.all([getClients(), getBalancesMap()])
+  return clients.map((c) => ({ ...c, balance: balances.get(c.id) ?? 0 }))
 }

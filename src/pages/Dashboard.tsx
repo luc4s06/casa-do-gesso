@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Wallet, TrendingUp, PackageMinus, Users, PackagePlus, ArrowUpRight, ArrowDownRight } from 'lucide-react'
@@ -14,16 +13,15 @@ import {
 } from 'recharts'
 import StatCard from '../components/StatCard'
 import EmptyState from '../components/EmptyState'
-import { getTotalReceivable, getClientsWithDebtCount, getWeeklySummary, getLast7DaysSeries, getAllTransactions } from '../services/reportService'
-import { getClientById } from '../services/clientService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
+import { getDashboardData } from '../services/reportService'
 import { formatCurrency, formatDateTime } from '../utils/format'
 
 export default function Dashboard() {
-  const totalReceivable = useMemo(() => getTotalReceivable(), [])
-  const weekly = useMemo(() => getWeeklySummary(0), [])
-  const clientsWithDebt = useMemo(() => getClientsWithDebtCount(), [])
-  const series = useMemo(() => getLast7DaysSeries(), [])
-  const recentTx = useMemo(() => getAllTransactions(6), [])
+  const { data, error, reload } = useAsync(() => getDashboardData(), [])
+  if (!data) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
+  const { totalReceivable, weekly, clientsWithDebt, series, recentTx, clientNames } = data
 
   return (
     <div className="flex flex-col gap-6">
@@ -72,7 +70,6 @@ export default function Dashboard() {
         ) : (
           <div className="flex flex-col gap-2">
             {recentTx.map((tx) => {
-              const client = getClientById(tx.clientId)
               const isWithdrawal = tx.type === 'withdrawal'
               return (
                 <div key={tx.id} className="flex items-center justify-between rounded-xl2 border border-gray-200 bg-white px-4 py-3 shadow-soft">
@@ -81,7 +78,7 @@ export default function Dashboard() {
                       {isWithdrawal ? <ArrowUpRight size={16} className="text-red-600" /> : <ArrowDownRight size={16} className="text-green-600" />}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-graphite-900">{client?.name ?? 'Cliente'}</p>
+                      <p className="text-sm font-semibold text-graphite-900">{clientNames[tx.clientId] ?? 'Cliente'}</p>
                       <p className="text-xs text-graphite-600">{tx.label} · {formatDateTime(tx.date)}</p>
                     </div>
                   </div>

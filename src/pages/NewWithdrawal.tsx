@@ -1,8 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Trash2, Plus } from 'lucide-react'
 import { getClients } from '../services/clientService'
-import { getMaterials, getCurrentPrice } from '../services/materialService'
+import { getMaterials, getPricesMap } from '../services/materialService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { getClientBalance } from '../services/reportService'
 import { createWithdrawal } from '../services/withdrawalService'
 import { getSettings } from '../services/settingsService'
@@ -19,20 +21,37 @@ interface Row {
 export default function NewWithdrawal() {
   const navigate = useNavigate()
   const { showToast } = useToast()
-  const clients = useMemo(() => getClients(), [])
   const materials = useMemo(() => getMaterials(), [])
-  const settings = useMemo(() => getSettings(), [])
+  const { data: base, error: loadError, reload } = useAsync(async () => {
+    const [clients, prices, settings] = await Promise.all([getClients(), getPricesMap(), getSettings()])
+    return { clients, prices, settings }
+  }, [])
+  const clients = base?.clients ?? []
+  const prices = base?.prices ?? {}
+  const settings = base?.settings ?? { name: 'Casa do Gesso', phone: '', address: '' }
 
   const [clientId, setClientId] = useState('')
   const [rows, setRows] = useState<Row[]>([{ materialId: materials[0]?.id ?? '', quantity: 1 }])
   const [error, setError] = useState('')
   const [result, setResult] = useState<Withdrawal | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const balanceBefore = clientId ? getClientBalance(clientId) : 0
+  const [balanceBefore, setBalanceBefore] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    if (!clientId) {
+      setBalanceBefore(0)
+      return
+    }
+    getClientBalance(clientId)
+      .then((b) => { if (!cancelled) setBalanceBefore(b) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Erro ao ler o saldo do cliente.') })
+    return () => { cancelled = true }
+  }, [clientId])
 
   const detailedRows = rows.map((r) => {
     const material = materials.find((m) => m.id === r.materialId)
-    const unitPrice = r.materialId ? getCurrentPrice(r.materialId) : 0
+    const unitPrice = r.materialId ? prices[r.materialId] ?? 0 : 0
     const total = round2((r.quantity || 0) * unitPrice)
     return { ...r, material, unitPrice, total }
   })
@@ -49,11 +68,13 @@ export default function NewWithdrawal() {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)))
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (busy) return
     setError('')
+    setBusy(true)
     try {
-      const withdrawal = createWithdrawal(
+      const withdrawal = await createWithdrawal(
         clientId,
         detailedRows.map((r) => ({
           materialId: r.materialId,
@@ -67,10 +88,14 @@ export default function NewWithdrawal() {
       setResult(withdrawal)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao registrar retirada.')
+    } finally {
+      setBusy(false)
     }
   }
 
   const client = clientId ? clients.find((c) => c.id === clientId) : undefined
+
+  if (!base) return loadError ? <ErrorState message={loadError} onRetry={reload} /> : <LoadingState />
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -171,7 +196,7 @@ export default function NewWithdrawal() {
           </div>
         </div>
 
-        <button type="submit" className="rounded-lg bg-graphite-900 px-4 py-3 text-sm font-semibold text-white hover:bg-graphite-800">
+        <button type="submit" disabled={busy} className="rounded-lg bg-graphite-900 px-4 py-3 text-sm font-semibold text-white hover:bg-graphite-800 disabled:opacity-60">
           Registrar retirada
         </button>
       </form>

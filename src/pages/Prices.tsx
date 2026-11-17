@@ -1,24 +1,38 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Save } from 'lucide-react'
 import MaterialCard from '../components/MaterialCard'
-import { getMaterials, getAllCurrentPrices, updatePrices } from '../services/materialService'
+import { getMaterials, getPricesMap, updatePrices } from '../services/materialService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { useToast } from '../hooks/useToast'
 
 export default function Prices() {
   const { showToast } = useToast()
   const materials = useMemo(() => getMaterials(), [])
-  const [prices, setPrices] = useState(() => {
-    const map: Record<string, number> = {}
-    getAllCurrentPrices().forEach((p) => { map[p.materialId] = p.price })
-    return map
-  })
+  const { data: loaded, error, reload } = useAsync(() => getPricesMap(), [])
+  const [prices, setPrices] = useState<Record<string, number>>({})
   const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  function handleSave() {
-    updatePrices(Object.entries(prices).map(([materialId, price]) => ({ materialId, price })))
-    setEditing(false)
-    showToast('Preços atualizados com sucesso.')
+  useEffect(() => {
+    if (loaded) setPrices(loaded)
+  }, [loaded])
+
+  async function handleSave() {
+    if (saving) return
+    setSaving(true)
+    try {
+      await updatePrices(Object.entries(prices).map(([materialId, price]) => ({ materialId, price })))
+      setEditing(false)
+      showToast('Preços atualizados com sucesso.')
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Não foi possível salvar os preços.', 'error')
+    } finally {
+      setSaving(false)
+    }
   }
+
+  if (!loaded) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
 
   return (
     <div className="flex flex-col gap-6">
@@ -28,7 +42,7 @@ export default function Prices() {
           <p className="text-sm text-graphite-600">O preço atual é usado apenas em novas retiradas — retiradas antigas não mudam.</p>
         </div>
         {editing ? (
-          <button onClick={handleSave} className="flex items-center gap-2 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-graphite-800">
+          <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-graphite-800 disabled:opacity-60">
             <Save size={16} /> Salvar preços
           </button>
         ) : (

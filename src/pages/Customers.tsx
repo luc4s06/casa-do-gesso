@@ -1,14 +1,17 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Search, UserPlus, Users } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
 import CustomerCard from '../components/CustomerCard'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { getClientsWithBalance } from '../services/clientService'
 import { formatCurrency } from '../utils/format'
 
 export default function Customers() {
   const [query, setQuery] = useState('')
-  const clients = useMemo(() => getClientsWithBalance(), [])
+  const { data: clients, error, reload } = useAsync(() => getClientsWithBalance(), [])
+  if (!clients) return error ? <ErrorState message={error} onRetry={reload} /> : <LoadingState />
 
   const filtered = clients.filter(
     (c) => c.name.toLowerCase().includes(query.toLowerCase()) || c.phone.includes(query)

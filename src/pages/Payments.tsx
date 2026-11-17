@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Download, Plus, Wallet, X } from 'lucide-react'
 import EmptyState from '../components/EmptyState'
@@ -7,7 +7,8 @@ import PaymentModal from '../components/PaymentModal'
 import { getClients } from '../services/clientService'
 import { getPayments, createPayment } from '../services/paymentService'
 import { getClientBalance } from '../services/reportService'
-import { getClientById } from '../services/clientService'
+import { LoadingState, ErrorState } from '../components/AsyncState'
+import { useAsync } from '../hooks/useAsync'
 import { getSettings } from '../services/settingsService'
 import { formatCurrency, formatDateTime } from '../utils/format'
 import { generatePaymentPdf } from '../utils/pdf'
@@ -18,9 +19,14 @@ const METHOD_LABEL: Record<PaymentMethod, string> = { pix: 'PIX', dinheiro: 'Din
 
 export default function Payments() {
   const { showToast } = useToast()
-  const clients = useMemo(() => getClients(), [])
-  const settings = useMemo(() => getSettings(), [])
-  const [payments, setPayments] = useState(() => getPayments())
+  const { data: base, error: loadError, reload } = useAsync(async () => {
+    const [clients, settings, payments] = await Promise.all([getClients(), getSettings(), getPayments()])
+    return { clients, settings, payments }
+  }, [])
+  const clients = base?.clients ?? []
+  const settings = base?.settings ?? { name: 'Casa do Gesso', phone: '', address: '' }
+  const payments = base?.payments ?? []
+  const clientsById = new Map(clients.map((c) => [c.id, c]))
   const [open, setOpen] = useState(false)
   const [clientId, setClientId] = useState('')
   const [amount, setAmount] = useState('')
@@ -29,18 +35,32 @@ export default function Payments() {
   const [error, setError] = useState('')
   const [confirmOverpay, setConfirmOverpay] = useState(false)
   const [result, setResult] = useState<Payment | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const balance = clientId ? getClientBalance(clientId) : 0
+  const [balance, setBalance] = useState(0)
+  useEffect(() => {
+    let cancelled = false
+    if (!clientId) {
+      setBalance(0)
+      return
+    }
+    getClientBalance(clientId)
+      .then((b) => { if (!cancelled) setBalance(b) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Erro ao ler o saldo do cliente.') })
+    return () => { cancelled = true }
+  }, [clientId])
 
   function reset() {
     setClientId(''); setAmount(''); setMethod('pix'); setNote(''); setError('')
   }
 
-  function submit(allowOverpay = false) {
+  async function submit(allowOverpay = false) {
+    if (busy) return
     setError('')
+    setBusy(true)
     try {
-      const payment = createPayment({ clientId, amount: Number(amount), method, note, allowOverpay })
-      setPayments(getPayments())
+      const payment = await createPayment({ clientId, amount: Number(amount), method, note, allowOverpay })
+      reload()
       showToast('Pagamento registrado com sucesso.')
       setResult(payment)
       setOpen(false)
@@ -52,6 +72,8 @@ export default function Payments() {
       } else {
         setError(err instanceof Error ? err.message : 'Erro ao registrar pagamento.')
       }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -63,6 +85,8 @@ export default function Payments() {
   }
 
   const client = clientId ? clients.find((c) => c.id === clientId) : undefined
+
+  if (!base) return loadError ? <ErrorState message={loadError} onRetry={reload} /> : <LoadingState />
 
   return (
     <div className="flex flex-col gap-6">
@@ -118,7 +142,7 @@ export default function Payments() {
                 <input value={note} onChange={(e) => setNote(e.target.value)} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-graphite-900 focus:outline-none" placeholder="Opcional" />
               </div>
 
-              <button type="submit" className="mt-1 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-graphite-800">
+              <button type="submit" disabled={busy} className="mt-1 rounded-lg bg-graphite-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-graphite-800 disabled:opacity-60">
                 Registrar pagamento
               </button>
             </div>
@@ -144,7 +168,7 @@ export default function Payments() {
             </thead>
             <tbody>
               {payments.map((p) => {
-                const c = getClientById(p.clientId)
+                const c = clientsById.get(p.clientId)
                 return (
                   <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 text-graphite-700">#{String(p.number).padStart(6, '0')}</td>
